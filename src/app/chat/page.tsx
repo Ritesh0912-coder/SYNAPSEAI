@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, MessageSquare, History, Settings, Plus, Bot, User, LogOut } from "lucide-react";
+import { ArrowRight, MessageSquare, History, Settings, Plus, Bot, User, LogOut, Trash2, Copy, RotateCcw } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import LightRays from "@/components/ui/LightRays";
@@ -127,6 +127,53 @@ export default function ChatPage() {
         }
     };
 
+    const deleteChat = async (e: React.MouseEvent, id: string) => {
+        e.stopPropagation();
+        if (!confirm("Are you sure you want to delete this neural log?")) return;
+
+        try {
+            const res = await fetch(`/api/chat/${id}`, { method: 'DELETE' });
+            if (res.ok) {
+                if (chatId === id) {
+                    startNewChat();
+                }
+                fetchHistory();
+            } else {
+                const data = await res.json();
+                alert(data.error || "Failed to delete chat.");
+            }
+        } catch (error) {
+            console.error("Delete Chat Error:", error);
+            alert("Critical system failure during deletion.");
+        }
+    };
+
+    const copyToClipboard = (text: string) => {
+        navigator.clipboard.writeText(text);
+    };
+
+    const revertMessage = async (index: number) => {
+        const messageToRevert = messages[index];
+        if (messageToRevert.role !== 'user') return;
+
+        const newMessages = messages.slice(0, index);
+        setMessages(newMessages);
+        setInput(messageToRevert.content);
+        setIsChatting(true);
+
+        if (chatId) {
+            try {
+                await fetch(`/api/chat/${chatId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messages: newMessages }),
+                });
+            } catch (error) {
+                console.error("Failed to sync revert with backend:", error);
+            }
+        }
+    };
+
     return (
         <main className="h-screen bg-black text-white selection:bg-primary/30 overflow-hidden flex relative">
             {/* Neural Rail v4.0 - Premium Engineering */}
@@ -161,7 +208,7 @@ export default function ChatPage() {
                     </Link>
 
                     {/* Content Section: Precision Spacing */}
-                    <div className="w-full flex-1 flex flex-col px-3 group-hover:px-6 gap-8 scrollbar-hide overflow-y-auto">
+                    <div className="w-full flex-1 flex flex-col px-3 group-hover:px-6 gap-8 scrollbar-hide overflow-y-auto overflow-x-hidden">
 
                         {/* Action: High-Tech "New Chat" */}
                         <button
@@ -186,24 +233,31 @@ export default function ChatPage() {
                         {/* Rail Items: Neural History */}
                         <div className="flex flex-col gap-3">
                             {history.length > 0 ? history.map((chat) => (
-                                <button
+                                <div
                                     key={chat._id}
                                     onClick={() => loadChat(chat._id)}
-                                    className={`w-full h-12 rounded-xl flex items-center justify-start transition-all group/item relative ${chatId === chat._id ? 'bg-white/[0.05] border-white/10' : 'hover:bg-white/[0.03] border-transparent'}`}
+                                    className={`w-full h-12 rounded-xl flex items-center justify-start transition-all group/item relative cursor-pointer ${chatId === chat._id ? 'bg-white/[0.05] border-white/10' : 'hover:bg-white/[0.03] border-transparent'}`}
                                 >
                                     <div className="w-14 h-12 flex items-center justify-center flex-shrink-0 relative z-10">
                                         <MessageSquare className={`w-6 h-6 transition-colors drop-shadow-[0_0_10px_rgba(0,255,102,0.4)] ${chatId === chat._id ? 'text-primary' : 'text-primary/50 group-hover/item:text-primary'}`} />
                                     </div>
-                                    <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-all duration-500 overflow-hidden relative z-10">
+                                    <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-all duration-500 overflow-hidden relative z-10 flex-1">
                                         <span className="text-[11px] font-medium text-gray-300 group-hover/item:text-white truncate">
                                             {chat.title}
                                         </span>
                                         <span className="text-[7px] uppercase tracking-tighter text-gray-600 font-bold">Encrypted Stream</span>
                                     </div>
+                                    <button
+                                        onClick={(e) => deleteChat(e, chat._id)}
+                                        className="opacity-0 group-hover:opacity-100 p-2 hover:text-red-500 transition-all relative z-20 mr-2"
+                                        title="Delete neural log"
+                                    >
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
                                     {chatId === chat._id && (
                                         <div className="absolute left-0 w-[2px] h-6 bg-primary rounded-full shadow-[0_0_10px_#00ff66]" />
                                     )}
-                                </button>
+                                </div>
                             )) : (
                                 <div className="w-full py-8 flex flex-col items-center group-hover:items-start gap-5 text-primary/20">
                                     <div className="w-12 flex justify-center">
@@ -341,8 +395,29 @@ export default function ChatPage() {
                                         <div className={`w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center border transition-all ${msg.role === 'ai' ? 'bg-primary/20 text-primary border-primary/30' : 'bg-white/10 text-white border-white/10'}`}>
                                             {msg.role === 'ai' ? <Bot className="w-4 h-4" /> : <User className="w-4 h-4" />}
                                         </div>
-                                        <div className={`p-4 rounded-2xl border leading-relaxed text-[13px] max-w-[80%] ${msg.role === 'ai' ? 'bg-white/5 border-white/10 text-gray-300 rounded-tl-none' : 'bg-primary/10 border-primary/20 text-white rounded-tr-none'}`}>
+                                        <div className={`p-4 rounded-2xl border leading-relaxed text-[13px] max-w-[80%] relative group/msg ${msg.role === 'ai' ? 'bg-white/5 border-white/10 text-gray-300 rounded-tl-none' : 'bg-primary/10 border-primary/20 text-white rounded-tr-none'}`}>
                                             {msg.content}
+
+                                            {/* Action Buttons */}
+                                            <div className={`absolute -bottom-6 flex gap-2 transition-opacity duration-300 opacity-0 group-hover/msg:opacity-100 ${msg.role === 'user' ? 'left-0' : 'right-0'}`}>
+                                                {msg.role === 'ai' ? (
+                                                    <button
+                                                        onClick={() => copyToClipboard(msg.content)}
+                                                        className="p-1 hover:text-primary transition-colors text-gray-500"
+                                                        title="Copy message"
+                                                    >
+                                                        <Copy className="w-3 h-3" />
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => revertMessage(i)}
+                                                        className="p-1 hover:text-primary transition-colors text-gray-500"
+                                                        title="Revert and Edit"
+                                                    >
+                                                        <RotateCcw className="w-3 h-3" />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
                                     </motion.div>
                                 ))}
