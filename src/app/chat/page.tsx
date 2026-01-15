@@ -14,6 +14,8 @@ import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import TextDecode from "@/components/ui/TextDecode";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const businessHeadlines = [
     "Dominance Through Neural Intelligence",
@@ -60,6 +62,15 @@ export default function ChatPage() {
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const [isDragging, setIsDragging] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    // Auto-focus on mount and when loading finishes
+    useEffect(() => {
+        if (!isLoading) {
+            // Small timeout to ensure DOM is ready
+            setTimeout(() => inputRef.current?.focus(), 50);
+        }
+    }, [isLoading]);
 
     // Derived: Get current chat title
     const currentChatTitle = (() => {
@@ -1170,12 +1181,16 @@ export default function ChatPage() {
                                         </div>
                                         <input
                                             type="text"
+                                            ref={inputRef}
                                             value={input}
                                             onChange={(e) => setInput(e.target.value)}
-                                            disabled={isLoading}
-                                            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend(e as any)}
+                                            onKeyDown={(e) => {
+                                                if (isLoading) return; // Prevent send while loading
+                                                if (e.key === 'Enter' && !e.shiftKey) handleSend(e as any);
+                                            }}
                                             placeholder={isLoading ? "Neural Processing..." : (placeholder || "Transmit Strategic Command...")}
                                             className="flex-1 bg-transparent px-6 py-4 text-white text-base md:text-lg focus:outline-none placeholder:text-gray-500 font-medium disabled:opacity-50 min-w-0"
+                                            autoFocus
                                         />
                                         <div className="flex-shrink-0 pr-2">
                                             <button
@@ -1657,44 +1672,70 @@ function SignalGraph({ data }: { data: any[] }) {
     );
 }
 
-// High-fidelity Markdown-style and link formatter for Strategic Intelligence
-function FormattedMessage({ content }: { content: string }) {
-    // Detect and extract signal blocks
-    const signalRegex = /\[\s*{\s*"signal":\s*".*?"\s*,\s*"level":\s*\d\s*}\s*(?:,\s*{\s*"signal":\s*".*?"\s*,\s*"level":\s*\d\s*}\s*)*\]/g;
-    const signals: any[][] = [];
-    let cleanContent = content;
+// Imports needed at top of file:
+// import ReactMarkdown from 'react-markdown';
+// import remarkGfm from 'remark-gfm';
 
-    const matches = content.match(signalRegex);
-    if (matches) {
-        matches.forEach(match => {
-            try {
-                const data = JSON.parse(match);
-                signals.push(data);
-                cleanContent = cleanContent.replace(match, `__SIGNAL_BLOCK_${signals.length - 1}__`);
-            } catch (e) {
-                console.error("Failed to parse signal block:", e);
-            }
-        });
+function FormattedMessage({ content }: { content: string }) {
+    // Extract JSON Signal Blocks first to prevent Markdown parser from breaking them
+    const signalRegex = /\[\s*{\s*"signal":\s*".*?"\s*,\s*"level":\s*\d\s*}\s*(?:,\s*{\s*"signal":\s*".*?"\s*,\s*"level":\s*\d\s*}\s*)*\]/g;
+    const parts = [];
+    let lastIndex = 0;
+
+    // Split content by signal blocks
+    let match;
+    while ((match = signalRegex.exec(content)) !== null) {
+        // Push text before the match
+        if (match.index > lastIndex) {
+            parts.push({ type: 'text', content: content.slice(lastIndex, match.index) });
+        }
+
+        // Push the signal block
+        try {
+            const signalData = JSON.parse(match[0]);
+            parts.push({ type: 'signal', data: signalData });
+        } catch (e) {
+            // If parse fails, treat as text
+            parts.push({ type: 'text', content: match[0] });
+        }
+
+        lastIndex = signalRegex.lastIndex;
     }
 
-    // Up-leveled formatting for Strategic Intelligence Reports
-    const formatted = cleanContent
-        .replace(/### (.*?)(?:\n|$)/g, '<h3 class="text-primary font-black uppercase tracking-[0.2em] text-[11px] mt-8 mb-3 flex items-center gap-2 border-l-2 border-primary/40 pl-3 bg-primary/5 py-1.5 rounded-r-md">$1</h3>')
-        .replace(/\*\*(.*?)\*\*/g, '<strong class="text-white font-black">$1</strong>')
-        .replace(/^\d\.\s/gm, '<br/><strong class="text-primary font-black">$&</strong>')
-        .replace(/^[\-\*]\s/gm, '<br/><span class="text-primary/60">•</span> ')
-        .replace(/(🎯|⚡|⚠️|✔|🎯|✅|🚀|🏛️|🔒)/g, '<span class="inline-block animate-pulse text-lg mr-1">$1</span>');
-
-    const sections = formatted.split(/__SIGNAL_BLOCK_(\d+)__/);
+    // Push remaining text
+    if (lastIndex < content.length) {
+        parts.push({ type: 'text', content: content.slice(lastIndex) });
+    }
 
     return (
-        <div className="whitespace-pre-wrap break-words leading-[1.8] text-gray-300 selection:bg-primary selection:text-black">
-            {sections.map((part, i) => {
-                if (i % 2 === 1) {
-                    const signalIdx = parseInt(part);
-                    return <SignalGraph key={i} data={signals[signalIdx]} />;
+        <div className="prose prose-invert prose-p:leading-relaxed prose-pre:bg-white/5 prose-pre:border prose-pre:border-white/10 max-w-none">
+            {parts.map((part, idx) => {
+                if (part.type === 'signal') {
+                    return <SignalGraph key={idx} data={part.data} />;
                 }
-                return <span key={i} dangerouslySetInnerHTML={{ __html: part }} />;
+                return (
+                    <ReactMarkdown
+                        key={idx}
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                            table: ({ node, ...props }) => <div className="overflow-x-auto my-4 border border-white/10 rounded-xl"><table className="w-full text-left text-sm" {...props} /></div>,
+                            thead: ({ node, ...props }) => <thead className="bg-white/5 text-gray-200 uppercase tracking-wider font-bold" {...props} />,
+                            th: ({ node, ...props }) => <th className="px-4 py-3 border-b border-white/10" {...props} />,
+                            td: ({ node, ...props }) => <td className="px-4 py-3 border-b border-white/5 text-gray-400" {...props} />,
+                            a: ({ node, ...props }) => <a className="text-primary hover:underline" {...props} target="_blank" rel="noopener noreferrer" />,
+                            strong: ({ node, ...props }) => <strong className="text-white font-black" {...props} />,
+                            ul: ({ node, ...props }) => <ul className="list-disc pl-5 space-y-1 marker:text-primary" {...props} />,
+                            ol: ({ node, ...props }) => <ol className="list-decimal pl-5 space-y-1 marker:text-primary" {...props} />,
+                            h1: ({ node, ...props }) => <h1 className="text-xl font-black text-white mt-6 mb-4 uppercase tracking-widest" {...props} />,
+                            h2: ({ node, ...props }) => <h2 className="text-lg font-black text-white mt-5 mb-3 uppercase tracking-wider flex items-center gap-2"><div className="w-1.5 h-1.5 bg-primary rounded-full" />{props.children}</h2>,
+                            h3: ({ node, ...props }) => <h3 className="text-md font-bold text-gray-200 mt-4 mb-2 uppercase tracking-wide border-l-2 border-primary/50 pl-3" {...props} />,
+                            code: ({ node, ...props }) => <code className="bg-white/10 px-1.5 py-0.5 rounded text-primary font-mono text-xs" {...props} />,
+                            blockquote: ({ node, ...props }) => <blockquote className="border-l-4 border-primary/30 pl-4 py-1 my-4 italic text-gray-400 bg-white/[0.02] rounded-r-lg" {...props} />,
+                        }}
+                    >
+                        {part.content}
+                    </ReactMarkdown>
+                );
             })}
         </div>
     );

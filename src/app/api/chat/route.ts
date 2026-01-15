@@ -7,11 +7,14 @@ import OpenAI from 'openai';
 import { authOptions } from '@/lib/auth';
 import { BUSINESS_INTELLIGENCE_PROMPT, GROUP_MANAGER_PROMPT } from '@/lib/synapse-prompts';
 
+const isQubrid = false; // !!process.env.QUBRID_API_KEY;
 const isOpenRouter = !!process.env.OPENROUTER_API_KEY;
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY || 'missing_key',
-  baseURL: isOpenRouter ? "https://openrouter.ai/api/v1" : undefined,
+  apiKey: process.env.QUBRID_API_KEY || process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY || 'missing_key',
+  baseURL: isQubrid
+    ? "https://platform.qubrid.com/api/v1/qubridai"
+    : (isOpenRouter ? "https://openrouter.ai/api/v1" : undefined),
   defaultHeaders: isOpenRouter ? {
     "HTTP-Referer": "https://synapse-ai.com",
     "X-Title": "SYNAPSE AI",
@@ -151,9 +154,10 @@ CRITICAL: You are now in GROUP INTELLIGENCE MODE. Focus on team decisions, share
         // Fallback to text if image gen fails
       }
     }
-
-    // 4. Call SYNAPSE AI LLM (OpenAI or OpenRouter)
-    const model = isOpenRouter ? "openai/gpt-4o-mini" : "gpt-4o-mini";
+    // 4. Call SYNAPSE AI LLM (OpenAI or OpenRouter or Qubrid)
+    const model = isQubrid
+      ? "meta-llama/Meta-Llama-3.1-70B-Instruct"
+      : (isOpenRouter ? "openai/gpt-4o-mini" : "gpt-4o-mini");
 
     const tools: any[] = [
       {
@@ -222,8 +226,8 @@ CRITICAL: You are now in GROUP INTELLIGENCE MODE. Focus on team decisions, share
     const completion = await openai.chat.completions.create({
       model: model,
       messages: openAIMessages,
-      tools: tools,
-      tool_choice: "auto",
+      tools: isQubrid ? undefined : tools,
+      tool_choice: isQubrid ? undefined : "auto",
       max_tokens: 4096,
       temperature: 0.7,
     });
