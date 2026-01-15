@@ -18,7 +18,13 @@ async function connectToDatabase() {
         throw new Error('Please define the MONGODB_URI environment variable inside .env');
     }
 
+    // DEBUG: Check for quoted string issue
+    if (MONGODB_URI.startsWith('"') || MONGODB_URI.startsWith("'")) {
+        console.warn("⚠️ WARNING: MONGODB_URI starts with a quote. This might cause connection failure.");
+    }
+
     if (cached.conn) {
+        // console.log("Using cached database connection");
         return cached.conn;
     }
 
@@ -27,8 +33,13 @@ async function connectToDatabase() {
             bufferCommands: false,
         };
 
+        console.log("Connecting to MongoDB...");
         cached.promise = mongoose.connect(MONGODB_URI!, opts).then((mongoose) => {
+            console.log("✅ MongoDB Connected Successfully");
             return mongoose;
+        }).catch(err => {
+            console.error("❌ MongoDB Connection FAILED:", err);
+            throw err;
         });
     }
 

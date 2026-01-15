@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import connectToDatabase from '@/lib/mongodb';
 import Chat from '@/models/Chat';
+import Group from '@/models/Group';
+import { authOptions } from '@/lib/auth';
 
 export async function GET(
     req: NextRequest,
@@ -9,17 +11,24 @@ export async function GET(
 ) {
     try {
         const { id } = await params;
-        const session = await getServerSession();
+        const session = await getServerSession(authOptions);
         if (!session || !session.user?.email) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
         await connectToDatabase();
 
-        const chat = await Chat.findOne({
-            _id: id,
-            userId: session.user.email
-        });
+        const chat = await Chat.findById(id);
+
+        if (chat && chat.groupId) {
+            // Shared Group Chat: Verify membership
+            const group = await Group.findById(chat.groupId);
+            const isMember = group?.members.some((m: any) => m.userId === session.user.email);
+            if (!isMember) return NextResponse.json({ error: 'Denied access to this group intelligence.' }, { status: 403 });
+        } else if (chat && chat.userId !== session.user.email) {
+            // Personal Chat: Verify ownership
+            return NextResponse.json({ error: 'Unauthorized access to personal transmission.' }, { status: 401 });
+        }
 
         if (!chat) {
             return NextResponse.json({ error: 'Chat not found' }, { status: 404 });
@@ -43,21 +52,27 @@ export async function DELETE(
 ) {
     try {
         const { id } = await params;
-        const session = await getServerSession();
+        const session = await getServerSession(authOptions);
         if (!session || !session.user?.email) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
         await connectToDatabase();
 
-        const result = await Chat.deleteOne({
-            _id: id,
-            userId: session.user.email
-        });
+        const chat = await Chat.findById(id);
+        if (!chat) return NextResponse.json({ error: 'Chat not found' }, { status: 404 });
 
-        if (result.deletedCount === 0) {
-            return NextResponse.json({ error: 'Chat not found or unauthorized' }, { status: 404 });
+        if (chat.groupId) {
+            // Shared Group Chat: Only admin can delete? Or any member? 
+            // For now, let's allow members but verify membership
+            const group = await Group.findById(chat.groupId);
+            const isMember = group?.members.some((m: any) => m.userId === session.user.email);
+            if (!isMember) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+        } else if (chat.userId !== session.user.email) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
+
+        await Chat.deleteOne({ _id: id });
 
         return NextResponse.json({ message: 'Chat deleted successfully' });
 
@@ -73,7 +88,7 @@ export async function PATCH(
 ) {
     try {
         const { id } = await params;
-        const session = await getServerSession();
+        const session = await getServerSession(authOptions);
         if (!session || !session.user?.email) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
@@ -85,11 +100,23 @@ export async function PATCH(
 
         await connectToDatabase();
 
-        const chat = await Chat.findOneAndUpdate(
-            { _id: id, userId: session.user.email },
-            { messages },
-            { new: true }
-        );
+        const chat = await Chat.findById(id);
+        if (!chat) return NextResponse.json({ error: 'Chat not found' }, { status: 404 });
+
+        if (chat.groupId) {
+            const group = await Group.findById(chat.groupId);
+            const isMember = group?.members.some((m: any) => m.userId === session.user.email);
+            if (!isMember) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+
+            // Viewers cannot update (save) shared history
+            const userRole = group.members.find((m: any) => m.userId === session.user.email)?.role;
+            if (userRole === 'viewer') return NextResponse.json({ error: 'Read-only access' }, { status: 403 });
+        } else if (chat.userId !== session.user.email) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        chat.messages = messages;
+        await chat.save();
 
         if (!chat) {
             return NextResponse.json({ error: 'Chat not found' }, { status: 404 });

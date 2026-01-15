@@ -48,3 +48,6 @@ next-env.d.ts
 # logs
 *.log
 install_log.txt
+build_log.txt
+build_err.txt
+tsc_output.txt
